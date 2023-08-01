@@ -1,0 +1,69 @@
+name: Append survey responses
+on:
+  workflow_call:
+    inputs:
+      name:
+        description: 'Survey filename (without file extension, .json/.tsv)'
+        required: true
+        type: string
+      data:
+        description: 'JSON formatted string'
+        required: true
+        type: string
+jobs:
+  update-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get current files
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Update files
+        uses: actions/github-script@v6
+        env:
+          FILENAME: ${{ inputs.name }}
+          DATA: ${{ inputs.data }}
+        with:
+          script: |
+            function getPreviousSurvey(file){
+              try{
+                let data = fs.readFileSync(file, 'utf-8');
+                return JSON.parse(data);
+              }catch(e){
+                console.error('File not found, fallback to empty array.\n', e);
+                return [];
+              }
+            }
+            const data = JSON.parse(process.env.DATA);
+            const fs = require('fs');
+            const filepath = 'surveys/'+process.env.FILENAME;
+            let surveys = getPreviousSurvey(filepath+'.json');
+            surveys.push(data);
+            surveys.sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+            fs.writeFileSync(filepath+'.json', JSON.stringify(surveys), 'utf-8');
+            let tsvHeaders = ['timestamp'];
+            let tsv = [tsvHeaders];
+            surveys.forEach(survey => {
+              let row = [survey.timestamp];
+              tsv.push(row);
+              survey.queries.forEach(q => {
+                let headerIndex = tsvHeaders.findIndex(query => query === q.query);
+                if(headerIndex === -1){
+                  headerIndex = tsvHeaders.length;
+                  tsvHeaders.push(q.query);
+                }
+                row[headerIndex] = q.result;
+              });
+            });
+            let tsvString = tsv.map(row => row.join('\t')).join('\n');
+            fs.writeFileSync(filepath+'.tsv', tsvString+'\n', 'utf-8');
+      - name: Post results
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout --orphan latest_branch
+          git add -A
+          git commit -m "Community survey"
+          git branch -D main
+          git branch -m main
+          git push -f origin main
