@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Get app token
         id: get-app-token
-        uses: getsentry/action-github-app-token@v2.0.0
+        uses: tibdex/github-app-token@v1.7.0
         with:
           app_id: ${{ secrets.APP_PARTICIPANT_ID }}
           private_key: ${{ secrets.APP_PARTICIPANT_PEM_CONTENT }}
@@ -120,7 +120,7 @@ jobs:
     steps:
       - name: Get app token
         id: get-app-token
-        uses: getsentry/action-github-app-token@v2.0.0
+        uses: tibdex/github-app-token@v1.7.0
         with:
           app_id: ${{ secrets.APP_PARTICIPANT_ID }}
           private_key: ${{ secrets.APP_PARTICIPANT_PEM_CONTENT }}
