@@ -1,0 +1,174 @@
+name: Community survey
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+jobs:
+  post-usage-result:
+    needs: usage-survey
+    concurrency: post_result
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ./.github/actions/append-survey-responses/
+      with:
+        name: usage
+        data: ${{ needs.usage-survey.outputs.data }}
+        app_id: ${{ secrets.APP_SURVEY_BOT_ID }}
+        private_key: ${{ secrets.APP_SURVEY_BOT_PEM_CONTENT }}
+  post-star-result:
+    needs: star-survey
+    concurrency: post_result
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: ./.github/actions/append-survey-responses/
+      with:
+        name: stars
+        data: ${{ needs.star-survey.outputs.data }}
+        app_id: ${{ secrets.APP_SURVEY_BOT_ID }}
+        private_key: ${{ secrets.APP_SURVEY_BOT_PEM_CONTENT }}
+  usage-survey:
+    runs-on: ubuntu-latest
+    outputs:
+      data: ${{ steps.get-query-results.outputs.result }}
+    steps:
+      - name: Get app token
+        id: get-app-token
+        uses: tibdex/github-app-token@v1.7.0
+        with:
+          app_id: ${{ secrets.APP_PARTICIPANT_ID }}
+          private_key: ${{ secrets.APP_PARTICIPANT_PEM_CONTENT }}
+      - name: Get query results
+        id: get-query-results
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.get-app-token.outputs.token }}
+          script: |
+            const sendQuery = async q => {
+              const url = 'https://api.github.com/search/repositories?q='+q+'&page=';
+              const repos = [];
+              let page = 1;
+              let data;
+              do{
+                const urlQuery = url+page++;
+                data = (await github.request(urlQuery)).data;
+                if(data.incomplete_results){
+                  queries.push({
+                    query: 'incomplete_results',
+                    result: urlQuery
+                  });
+                }
+                repos.push(...data.items);
+              }while(data.items.length);
+              return repos;
+            }
+            const timestamp = JSON.parse(JSON.stringify(new Date()));
+            const queries = [];
+            const excludedRepoOwners = repo => !['Algorithmic-Games', 'ChrisAcrobat'].includes(repo.owner.login);
+          
+            const response_total = await sendQuery('topic:Algorithmic-Games');
+            queries.push({
+              query: 'Algorithmic-Games_total',
+              result: response_total.length
+            });
+            queries.push({
+              query: 'Algorithmic-Games_totalExclusive',
+              result: response_total.filter(excludedRepoOwners).length
+            });
+            
+            const response_participants = await sendQuery('topic:Algorithmic-Games+topic:Algorithmic-Games-Participant');
+            queries.push({
+              query: 'participants',
+              result: response_participants.filter(repo => !repo.topics.includes('Algorithmic-Games-Retired')).length
+            });
+            queries.push({
+              query: 'participantsExclusive',
+              result: response_participants.filter(excludedRepoOwners).filter(repo => !repo.topics.includes('Algorithmic-Games-Retired')).length
+            });
+            queries.push({
+              query: 'retiredParticipants',
+              result: response_participants.filter(repo => repo.topics.includes('Algorithmic-Games-Retired')).length
+            });
+
+            const response_arenas = await sendQuery('topic:Algorithmic-Games+topic:Algorithmic-Games-Arena-v1');
+            queries.push({
+              query: 'arenas',
+              result: response_arenas.length
+            });
+            queries.push({
+              query: 'arenasExclusive',
+              result: response_arenas.filter(excludedRepoOwners).length
+            });
+            
+            const response_replays = await sendQuery('topic:Algorithmic-Games+topic:Algorithmic-Games-Replay');
+            queries.push({
+              query: 'replays',
+              result: response_replays.length
+            });
+            queries.push({
+              query: 'replaysExclusive',
+              result: response_replays.filter(excludedRepoOwners).length
+            });
+            
+            const response_interfaces = await sendQuery('topic:Algorithmic-Games-Interface');
+            queries.push({
+              query: 'interfaces',
+              result: response_interfaces.length
+            });
+            queries.push({
+              query: 'interfacesExclusive',
+              result: response_interfaces.filter(excludedRepoOwners).length
+            });
+            return {timestamp, queries};
+  star-survey:
+    runs-on: ubuntu-latest
+    outputs:
+      data: ${{ steps.get-query-results.outputs.result }}
+    steps:
+      - name: Get app token
+        id: get-app-token
+        uses: tibdex/github-app-token@v1.7.0
+        with:
+          app_id: ${{ secrets.APP_PARTICIPANT_ID }}
+          private_key: ${{ secrets.APP_PARTICIPANT_PEM_CONTENT }}
+      - name: Get query results
+        id: get-query-results
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.get-app-token.outputs.token }}
+          script: |
+            const sendQuery = async q => {
+              const url = 'https://api.github.com/search/repositories?q='+q+'&page=';
+              const repos = [];
+              let page = 1;
+              let data;
+              do{
+                const urlQuery = url+page++;
+                data = (await github.request(urlQuery)).data;
+                if(data.incomplete_results){
+                  queries.push({
+                    query: 'incomplete_results',
+                    result: urlQuery
+                  });
+                }
+                repos.push(...data.items);
+              }while(data.items.length);
+              return repos;
+            }
+            const timestamp = JSON.parse(JSON.stringify(new Date()));
+            const queries = [];
+            const response_stars = await sendQuery('user:AlgorithmicGames');
+            let totalStars = 0;
+            response_stars.filter(r => !r.private).forEach(r => {
+              queries.push({
+                query: 'stars_'+r.name,
+                result: r.stargazers_count
+              });
+              totalStars += r.stargazers_count;
+            });
+            queries.push({
+              query: 'stars_total',
+              result: totalStars
+            });
+            return {timestamp, queries};
