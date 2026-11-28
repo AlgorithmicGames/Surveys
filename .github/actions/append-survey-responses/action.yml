@@ -1,0 +1,97 @@
+name: Append survey responses
+inputs:
+  name:
+    description: 'Survey filename (without file extension, .json/.tsv)'
+    required: true
+    type: string
+  data:
+    description: 'JSON formatted string'
+    required: true
+    type: string
+  app_id:
+    description: ID of the GitHub App.
+    required: true
+  private_key:
+    description: Private key of the GitHub App (can be Base64 encoded).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Get current files
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.ref_name }}
+    - name: Update files
+      uses: actions/github-script@v6
+      env:
+        FILENAME: ${{ inputs.name }}
+        DATA: ${{ inputs.data }}
+      with:
+        script: |
+          function getPreviousSurvey(file){
+            try{
+              const data = fs.readFileSync(file, 'utf-8');
+              return JSON.parse(data);
+            }catch(e){
+              console.error('File not found, fallback to empty array.\n', e);
+              return [];
+            }
+          }
+          const data = JSON.parse(process.env.DATA);
+          const fs = require('fs');
+          const filepath = 'surveys/'+process.env.FILENAME;
+          const surveys = getPreviousSurvey(filepath+'.json');
+          surveys.push(data);
+          surveys.sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+          fs.writeFileSync(filepath+'.json', JSON.stringify(surveys, null, '\t'), 'utf-8');
+          const tsvHeaders = ['timestamp'];
+          const tsv = [tsvHeaders];
+          surveys.forEach(survey => {
+            const row = [survey.timestamp];
+            tsv.push(row);
+            survey.queries.forEach(q => {
+              let headerIndex = tsvHeaders.findIndex(query => query === q.query);
+              if(headerIndex === -1){
+                headerIndex = tsvHeaders.length;
+                tsvHeaders.push(q.query);
+              }
+              row[headerIndex] = q.result;
+            });
+          });
+          tsv.forEach(row => {
+            while(row.length < tsvHeaders.length){
+              row.push('');
+            }
+          });
+          const tsvString = tsv.map(row => row.join('\t')).join('\n');
+          fs.writeFileSync(filepath+'.tsv', tsvString+'\n', 'utf-8');
+    - name: GitHub app JWT and installation access token generation
+      id: generate_token
+      uses: jamestrousdale/github-app-jwt-token@0.1.4
+      with:
+        app-id: ${{ inputs.app_id }}
+        private-key: ${{ inputs.private_key }}
+    - name: Set environment from action output
+      shell: bash
+      run: |
+        {
+          echo "GITHUB_APP_JWT=${{ steps.generate-github-app-tokens.outputs.jwt }}"
+          echo "GITHUB_APP_ACCESS_TOKEN=${{ steps.generate-github-app-tokens.outputs.access-token }}"
+        } >> ${GITHUB_ENV}
+    - name: Post results
+      shell: bash
+      run: |
+        git config user.name "Survey bot"
+        git config user.email 370152+survey-bot[app]@users.noreply.github.com
+        git config --add --bool push.autoSetupRemote true
+        git checkout --orphan latest_branch
+        git add -A
+        git commit -m "Community survey"
+        git branch -D ${{ github.ref_name }}
+        git branch -m ${{ github.ref_name }}
+    - name: Push to protected branch
+      uses: CasperWA/push-protected@v2.14.0
+      with:
+        token: ${{ steps.generate_token.outputs.access-token }}
+        branch: ${{ github.ref_name }}
+        force: true
